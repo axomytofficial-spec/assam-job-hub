@@ -83,6 +83,7 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:
 
 a.job{text-decoration:none}.check{flex-direction:row;align-items:center;gap:8px}.check input{width:auto}
 .login{padding:20px;display:flex;flex-direction:column;gap:12px}.who{margin:0;padding:14px 20px 0;color:var(--muted);font-size:.92rem}
+.mrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px dashed var(--line)}.mrow span{min-width:0}.mrow small{display:block;color:var(--muted)}.btn.small{padding:8px 12px;font-size:.85rem}.btn.del{background:transparent;color:var(--red);border:1px solid var(--red)}
 .setup{margin:0 0 18px;padding:12px 14px;border:1px solid var(--gold);border-radius:12px;font-size:.92rem}
 </style>
 </head>
@@ -123,6 +124,7 @@ a.job{text-decoration:none}.check{flex-direction:row;align-items:center;gap:8px}
       <div class="f full"><button class="btn" type="submit" id="saveBtn">Save job</button></div>
       <div class="f full"><button class="btn ghost" type="button" id="logoutBtn">Sign out</button></div>
     </form>
+    <div class="login"><h2 style="margin:0">Manage jobs</h2><div id="mlist"></div></div>
   </div>
 </dialog>
 <div class="toast hidden" id="toast" role="status"></div>
@@ -190,7 +192,7 @@ async function load(){
  if(!client){jobs=sample;list("Setup needed: connect Supabase using README.md. Until then, sample listings are shown.");return;}
  try{
   const {data,error}=await client.from("jobs").select(COLS).eq("published",true).order("created_at",{ascending:false});
-  if(error)throw error;jobs=data||[];list();
+  if(error)throw error;jobs=(data||[]).filter(j=>left(j.deadline)>=0);list();
  }catch(e){jobs=sample;list("Database needs attention: "+(e.message||"could not load jobs")+". Sample listings are shown. Check README.md.");}
 }
 /* admin */
@@ -198,7 +200,27 @@ const dlg=$("dlg");let photo=null;
 CATS.forEach(c=>{const o=el("option","",c);o.value=c;$("fCat").append(o);});
 $("adminOpen").onclick=()=>{$("fOpen").value=day(0);dlg.showModal();};
 $("dlgClose").onclick=()=>dlg.close();
-function showAdmin(u){$("loginPane").classList.toggle("hidden",!!u);$("adminPane").classList.toggle("hidden",!u);if(u)$("who").textContent="Signed in as "+u.email+". Only accounts in admin_users can publish.";}
+async function loadManage(){
+ const box=$("mlist");if(!client)return;
+ const r=await client.from("jobs").select("id,title,organisation,deadline,published,image_url").order("created_at",{ascending:false});
+ box.replaceChildren();
+ if(r.error){box.append(el("p","org","Could not load jobs: "+r.error.message));return;}
+ if(!r.data.length)box.append(el("p","org","No jobs yet."));
+ r.data.forEach(j=>{
+  const row=el("div","mrow"),s=el("span"),n=left(j.deadline);
+  s.append(el("strong","",j.title),el("small","",(j.organisation||"")+" | "+(n<0?"Closed":"Closes "+short(j.deadline))+(j.published?"":" | Unpublished")));
+  const b=el("button","btn small del","Delete");b.type="button";
+  b.onclick=async()=>{
+   if(!confirm("Delete \""+j.title+"\"? This cannot be undone."))return;
+   b.disabled=true;
+   const d=await client.from("jobs").delete().eq("id",j.id);
+   if(d.error){toast("Could not delete: "+d.error.message);b.disabled=false;return;}
+   if(j.image_url&&j.image_url.includes("/job-photos/")){try{await client.storage.from("job-photos").remove([decodeURIComponent(j.image_url.split("/job-photos/")[1])]);}catch(x){}}
+   toast("Job deleted");await load();loadManage();
+  };
+  row.append(s,b);box.append(row);});
+}
+function showAdmin(u){$("loginPane").classList.toggle("hidden",!!u);$("adminPane").classList.toggle("hidden",!u);if(u)loadManage();if(u)$("who").textContent="Signed in as "+u.email+". Only accounts in admin_users can publish.";}
 if(client){client.auth.getSession().then(r=>showAdmin(r.data.session&&r.data.session.user));client.auth.onAuthStateChange((_e,s)=>showAdmin(s&&s.user));}
 $("loginBtn").onclick=async()=>{
  if(!client){$("lmsg").textContent="Connect Supabase first (see README.md).";return;}
@@ -235,7 +257,7 @@ $("jobForm").onsubmit=async e=>{
   const r=await client.from("jobs").insert(p);
   if(r.error)throw r.error;
   $("jobForm").reset();photo=null;$("pv").replaceChildren();$("pv").textContent="Photo";$("fOpen").value=day(0);
-  dlg.close();toast("Job saved");await load();
+  dlg.close();toast("Job saved");await load();loadManage();
  }catch(err){m.textContent="Could not save: "+(err.message||"unknown error")+". Did you run supabase/step2_photos_and_open_date.sql?";}
  $("saveBtn").disabled=false;
 };

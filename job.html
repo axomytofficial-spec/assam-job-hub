@@ -135,6 +135,7 @@ function show(j){
   ["Applications open",fmt(j.open_date)+(openIn(j)>0?" (opens in "+plural(openIn(j))+")":"")],
   ["Application deadline",fmt(j.deadline)+" ("+leftText(n).toLowerCase()+")"]].forEach(r=>{const d=el("div");d.append(el("small","",r[0]),el("strong","",r[1]));gr.append(d);});
  const ap=el("a","btn",openIn(j)>0?"Read the official notice":"Open official notice and apply");ap.href=j.official_url;ap.target="_blank";ap.rel="noopener noreferrer";
+ if(n<0){ap.textContent="This job has closed";ap.removeAttribute("href");ap.style.opacity=".6";ap.style.pointerEvents="none";}
  const cta=el("div","cta");cta.append(ap);
  app.append(back,h,gr,el("h2","","About this job"),el("p","desc",j.description||"No further details were provided. Check the official notice."),cta,
   el("p","note","Check the eligibility and closing date on the official notice before you apply."));
