@@ -167,6 +167,7 @@ header.bar .btn{font-size:calc(var(--u)*2.6);padding:calc(var(--u)*1.6) calc(var
       <div class="f"><label for="fDate">Application deadline</label><input id="fDate" type="date" required></div>
       <div class="f full"><label for="fUrl">Official notice or apply link</label><input id="fUrl" type="url" required placeholder="https://"></div>
       <div class="f full"><label for="fDesc">Description</label><textarea id="fDesc" rows="10" maxlength="20000" placeholder="## Job details&#10;Post Name: Junior Assistant&#10;Vacancies: 11&#10;&#10;## How to apply&#10;1. Open the official website&#10;2. Fill the form"></textarea><span class="hint">Formatting: ## Heading, Label: value, - bullet, 1. step, **bold**, [text](https://link). Tables: | A | B | on each line.</span></div>
+      <div class="f full"><label for="fPdf">Official notification (PDF)</label><input id="fPdf" type="file" accept="application/pdf,.pdf"><span class="hint" id="pdfNote">Optional. Upload the official notice PDF (max 15 MB). A download button appears on the job page.</span><label class="check hidden" id="pdfRmWrap" style="font-weight:500"><input id="pdfRm" type="checkbox"> Remove the current PDF</label></div>
       <div class="f full"><label for="fPhoto">Job photo or logo</label><div class="photo"><div class="av" id="pv">Photo</div><input id="fPhoto" type="file" accept="image/png,image/jpeg,image/webp"></div></div>
       <div class="f full check"><input id="fPub" type="checkbox" checked><label for="fPub">Publish immediately</label></div>
       <p class="msg" id="msg" role="status"></p>
@@ -272,6 +273,9 @@ async function load(){
 }
 /* admin */
 const dlg=$("dlg");let photo=null;let editId=null,editImg=null;
+const NOTICE=/^\s*\[\[notice:(https?:\/\/[^\s\]]+)\]\]\s*$/m;
+const storePath=u=>decodeURIComponent(u.split("/job-photos/")[1]);
+function pdfUI(has){$("pdfNote").textContent=has?"A notification PDF is attached (the [[notice:...]] line in the description). Choose a new file to replace it, or tick Remove.":"Optional. Upload the official notice PDF (max 15 MB). A download button appears on the job page.";$("pdfRmWrap").classList.toggle("hidden",!has);$("pdfRm").checked=false;}
 CATS.forEach(c=>{const o=el("option","",c);o.value=c;$("fCat").append(o);});
 $("adminOpen").onclick=()=>{if(!editId)$("fOpen").value=day(0);dlg.showModal();};
 $("dlgClose").onclick=()=>dlg.close();
@@ -282,15 +286,16 @@ function startEdit(d){
  $("fUrl").value=d.official_url||"";$("fDesc").value=d.description||"";$("fPub").checked=!!d.published;
  $("fPhoto").value="";const pv=$("pv");pv.replaceChildren();
  if(editImg){const i=el("img");i.src=editImg;i.alt="Current photo";pv.append(i);}else pv.textContent="Photo";
+ pdfUI(NOTICE.test(d.description||""));
  $("saveBtn").textContent="Update job";$("cancelEdit").classList.remove("hidden");
  $("msg").textContent="Editing: "+(d.title||"");
  $("jobForm").scrollIntoView({block:"start"});$("fTitle").focus();
 }
-function endEdit(){editId=null;editImg=null;$("saveBtn").textContent="Save job";$("cancelEdit").classList.add("hidden");}
+function endEdit(){editId=null;editImg=null;$("fPdf").value="";pdfUI(false);$("saveBtn").textContent="Save job";$("cancelEdit").classList.add("hidden");}
 $("cancelBtn").onclick=()=>{$("jobForm").reset();photo=null;$("pv").replaceChildren();$("pv").textContent="Photo";$("fOpen").value=day(0);$("msg").textContent="";endEdit();};
 async function loadManage(){
  const box=$("mlist");if(!client)return;
- const r=await client.from("jobs").select("id,title,organisation,deadline,published,image_url").order("created_at",{ascending:false});
+ const r=await client.from("jobs").select("id,title,organisation,deadline,published,image_url,description").order("created_at",{ascending:false});
  box.replaceChildren();
  if(r.error){box.append(el("p","org","Could not load jobs: "+r.error.message));return;}
  if(!r.data.length)box.append(el("p","org","No jobs yet."));
@@ -304,6 +309,7 @@ async function loadManage(){
    const d=await client.from("jobs").delete().eq("id",j.id);
    if(d.error){toast("Could not delete: "+d.error.message);b.disabled=false;return;}
    if(j.image_url&&j.image_url.includes("/job-photos/")){try{await client.storage.from("job-photos").remove([decodeURIComponent(j.image_url.split("/job-photos/")[1])]);}catch(x){}}
+   const pm=(j.description||"").match(NOTICE);if(pm&&pm[1].includes("/job-photos/")){try{await client.storage.from("job-photos").remove([storePath(pm[1])]);}catch(x){}}
    toast("Job deleted");await load();loadManage();
   };
   const eb=el("button","btn small ghost","Edit");eb.type="button";
@@ -351,6 +357,18 @@ $("jobForm").onsubmit=async e=>{
    if(up.error)throw up.error;
    p.image_url=client.storage.from("job-photos").getPublicUrl(path).data.publicUrl;
   }
+  const oldPdf=(p.description.match(NOTICE)||[])[1]||null,pdf=$("fPdf").files[0],rmPdf=$("pdfRm").checked;let newPdf=null;
+  if(pdf){
+   if(pdf.type!=="application/pdf"&&!/\.pdf$/i.test(pdf.name))throw new Error("The notification must be a PDF file.");
+   if(pdf.size>15*1024*1024)throw new Error("PDF is too large. Choose one under 15 MB.");
+   m.textContent="Uploading PDF…";
+   const pp="notices/"+(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(36).slice(2))+".pdf";
+   const pu=await client.storage.from("job-photos").upload(pp,pdf,{contentType:"application/pdf",cacheControl:"31536000"});
+   if(pu.error)throw pu.error;
+   newPdf=client.storage.from("job-photos").getPublicUrl(pp).data.publicUrl;
+  }
+  if(pdf||rmPdf)p.description=p.description.replace(NOTICE,"").trim();
+  if(newPdf)p.description=(p.description+"\n\n[[notice:"+newPdf+"]]").trim();
   const wasEdit=!!editId;let r;
   if(wasEdit){
    r=await client.from("jobs").update(p).eq("id",editId).select("id");
@@ -358,6 +376,7 @@ $("jobForm").onsubmit=async e=>{
   }else r=await client.from("jobs").insert(p);
   if(r.error)throw r.error;
   if(wasEdit&&p.image_url&&editImg&&editImg.includes("/job-photos/")){try{await client.storage.from("job-photos").remove([decodeURIComponent(editImg.split("/job-photos/")[1])]);}catch(x){}}
+  if(oldPdf&&(newPdf||rmPdf)&&oldPdf.includes("/job-photos/")){try{await client.storage.from("job-photos").remove([storePath(oldPdf)]);}catch(x){}}
   $("jobForm").reset();photo=null;$("pv").replaceChildren();$("pv").textContent="Photo";$("fOpen").value=day(0);
   endEdit();dlg.close();toast(wasEdit?"Job updated":"Job saved");await load();loadManage();
  }catch(err){m.textContent="Could not save: "+(err.message||"unknown error")+". Did you run supabase/step2_photos_and_open_date.sql?";}
