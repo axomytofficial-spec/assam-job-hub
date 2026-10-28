@@ -143,7 +143,7 @@ header.bar .btn{font-size:calc(var(--u)*2.6);padding:calc(var(--u)*1.6) calc(var
 </style>
 </head>
 <body>
-<header class="bar"><div class="in"><span class="logo" role="img" aria-label="Government of Assam emblem"></span><a class="brandbox" href="index.html"><span class="brand">Assam <b>Job Hub</b></span><span class="tagline">Your Gateway to Government &amp; Private Jobs in Assam</span></a><button class="menu" id="adminOpen" type="button" aria-label="Open menu"><svg viewBox="0 0 51 32"><path d="M2.5 2.5h46M2.5 16h46M2.5 29.5h46"/></svg></button></div></header>
+<header class="bar"><div class="in"><span class="logo" role="img" aria-label="Government of Assam emblem"></span><a class="brandbox" href="index.html"><span class="brand">Assam <b>Job Hub</b></span><span class="tagline">Your Gateway to Government &amp; Private Jobs in Assam</span></a><button class="menu hidden" id="adminOpen" type="button" aria-label="Open menu"><svg viewBox="0 0 51 32"><path d="M2.5 2.5h46M2.5 16h46M2.5 29.5h46"/></svg></button></div></header>
 <div class="wrap">
   <main id="app"></main>
   <footer><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6l8-3Z"/><path d="M12 8.5v7M8.5 12h7"/></svg></span><p>Assam Job Hub is an information directory. Verify every vacancy on the employer’s official website, and never pay anyone to secure a job.</p></footer>
@@ -288,7 +288,11 @@ async function fillNext(){
  if(editId)return;
  $("fNo").value=r.error?"":((r.data&&r.data.length)?r.data[0].post_no+1:1);
 }
-$("adminOpen").onclick=()=>{if(!editId){$("fOpen").value=day(0);if(!$("fNo").value)fillNext();}dlg.showModal();};
+function openAdmin(){if(!editId){$("fOpen").value=day(0);if(!$("fNo").value)fillNext();}if(!dlg.open)dlg.showModal();}
+$("adminOpen").onclick=openAdmin;
+let tapN=0,tapT;document.querySelector(".logo").addEventListener("click",()=>{tapN++;clearTimeout(tapT);tapT=setTimeout(()=>{tapN=0;},1500);if(tapN>=5){tapN=0;openAdmin();}});
+if(location.hash==="#admin")openAdmin();
+window.addEventListener("hashchange",()=>{if(location.hash==="#admin")openAdmin();});
 $("dlgClose").onclick=()=>dlg.close();
 function startEdit(d){
  editId=d.id;editImg=d.image_url||null;photo=null;
@@ -351,7 +355,7 @@ async function loadManage(){
   const acts=el("div","mact");acts.append(up,dn,eb,b);
   row.append(s,acts);box.append(row);});
 }
-function showAdmin(u){$("loginPane").classList.toggle("hidden",!!u);$("adminPane").classList.toggle("hidden",!u);if(u)loadManage();if(u)$("who").textContent="Signed in as "+u.email+". Only accounts in admin_users can publish.";}
+function showAdmin(u){$("adminOpen").classList.toggle("hidden",!u);$("loginPane").classList.toggle("hidden",!!u);$("adminPane").classList.toggle("hidden",!u);if(u)loadManage();if(u)$("who").textContent="Signed in as "+u.email+". Only accounts in admin_users can publish.";}
 if(client){client.auth.getSession().then(r=>showAdmin(r.data.session&&r.data.session.user));client.auth.onAuthStateChange((_e,s)=>showAdmin(s&&s.user));}
 $("loginBtn").onclick=async()=>{
  if(!client){$("lmsg").textContent="Connect Supabase first (see README.md).";return;}
