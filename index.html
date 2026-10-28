@@ -138,6 +138,8 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:
 header.bar .btn{font-size:calc(var(--u)*2.6);padding:calc(var(--u)*1.6) calc(var(--u)*3.2);border-radius:calc(var(--u)*1.4)}
 .cta .btn{font-size:calc(var(--u)*2.6)!important;padding:calc(var(--u)*1.9) calc(var(--u)*3.6)!important;border-radius:calc(var(--u)*1.4)}
 .note{font-size:calc(var(--u)*2.4)}
+.pno{flex:none;min-width:calc(var(--u)*5.5);margin-top:calc(var(--u)*1.2);font:700 calc(var(--u)*4.4)/1 var(--serif);color:var(--gold)}
+.mact{display:flex;gap:6px;flex:none;align-items:center}.btn.small.mv{padding:8px 11px}.btn.small:disabled{opacity:.35;cursor:default}
 </style>
 </head>
 <body>
@@ -162,7 +164,8 @@ header.bar .btn{font-size:calc(var(--u)*2.6);padding:calc(var(--u)*1.6) calc(var
       <div class="f full"><label for="fTitle">Job title</label><input id="fTitle" required maxlength="160"></div>
       <div class="f"><label for="fOrg">Organisation</label><input id="fOrg" required maxlength="160"></div>
       <div class="f"><label for="fCat">Category</label><select id="fCat"></select></div>
-      <div class="f full"><label for="fLoc">Location</label><input id="fLoc" value="Assam" maxlength="120"></div>
+      <div class="f"><label for="fLoc">Location</label><input id="fLoc" value="Assam" maxlength="120"></div>
+      <div class="f"><label for="fNo">Post No.</label><input id="fNo" type="number" min="1" step="1" inputmode="numeric" placeholder="1, 2, 3…"><span class="hint">Posts show in this order. Next free number is filled in for you.</span></div>
       <div class="f"><label for="fOpen">Applications open on</label><input id="fOpen" type="date" required></div>
       <div class="f"><label for="fDate">Application deadline</label><input id="fDate" type="date" required></div>
       <div class="f full"><label for="fUrl">Official notice or apply link</label><input id="fUrl" type="url" required placeholder="https://"></div>
@@ -189,7 +192,7 @@ const SUPABASE_ANON_KEY = "sb_publishable_Xns8eRx5mfy_exW31sJr1A_14e_g70e";
 // NEVER put a service_role or secret key in this file.
 const connected = window.supabase && SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("PASTE_") && !SUPABASE_ANON_KEY.includes("PASTE_");
 const client = connected ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-const COLS = "id,title,organisation,category,location,open_date,deadline,description,official_url,image_url,published";
+const COLS = "id,title,organisation,category,location,open_date,deadline,description,official_url,image_url,published,post_no";
 const CATS=["Government","Private","Teaching","Healthcare","Banking","Engineering","Other"];
 const TINTS=["#B3261E","#2F4B5A","#8A6414","#4F6B3A","#6B3A5B","#3B4F8A"];
 const ICONS={
@@ -245,14 +248,14 @@ function list(msg){
  ["",...CATS].forEach(c=>{const x=el("button","chip");x.type="button";x.append(ico(c||"all"),document.createTextNode(c||"All jobs"));x.setAttribute("aria-pressed",String(c===cat));x.onclick=()=>{cat=c;list(msg);};fl.append(x);});
  app.append(fl);
  const g=el("div","jobs");
- const rows=jobs.filter(j=>!cat||j.category===cat).sort((x,y)=>left(x.deadline)-left(y.deadline));
+ const rows=jobs.filter(j=>!cat||j.category===cat).sort((x,y)=>{const a=x.post_no==null?1e9:x.post_no,b=y.post_no==null?1e9:y.post_no;return a-b||left(x.deadline)-left(y.deadline);});
  if(!rows.length)g.append(el("div","empty","No jobs in this category yet."));
- rows.forEach(j=>{
+ rows.forEach((j,i)=>{
   const c=el("a","job");c.href="job.html?id="+encodeURIComponent(j.id);
   const t=el("div","jt"),w=el("div","jm"),cp=el("span","cpill");
   cp.append(ico(j.category||"Other"),document.createTextNode(j.category||"Other"));
   w.append(cp,el("h3","",j.title),el("div","org",j.organisation||"Organisation not listed"));
-  t.append(avatar(j),w);
+  t.append(el("span","pno",String(i+1)),avatar(j),w);
   const f=el("div","facts"),loc=el("div","fc loc"),dt=el("div","fc dt"),lt=el("div"),dd=el("div");
   lt.append(el("small","","Location"),el("strong","",j.location||"Assam"));loc.append(ico("pin"),lt);
   dd.append(el("small","","Apply"),el("strong","",(j.open_date?short(j.open_date)+" to ":"until ")+short(j.deadline)));dt.append(ico("cal"),dd);
@@ -267,7 +270,9 @@ function list(msg){
 async function load(){
  if(!client){jobs=sample;list("Setup needed: connect Supabase using README.md. Until then, sample listings are shown.");return;}
  try{
-  const {data,error}=await client.from("jobs").select(COLS).eq("published",true).order("created_at",{ascending:false});
+  let q=await client.from("jobs").select(COLS).eq("published",true).order("post_no",{ascending:true,nullsFirst:false}).order("created_at",{ascending:false});
+  if(q.error&&/post_no/i.test(q.error.message||""))q=await client.from("jobs").select(COLS.replace(",post_no","")).eq("published",true).order("created_at",{ascending:false});
+  const {data,error}=q;
   if(error)throw error;jobs=(data||[]).filter(j=>left(j.deadline)>=0);list();
  }catch(e){jobs=sample;list("Database needs attention: "+(e.message||"could not load jobs")+". Sample listings are shown. Check README.md.");}
 }
@@ -277,13 +282,19 @@ const NOTICE=/^\s*\[\[notice:(https?:\/\/[^\s\]]+)\]\]\s*$/m;
 const storePath=u=>decodeURIComponent(u.split("/job-photos/")[1]);
 function pdfUI(has){$("pdfNote").textContent=has?"A notification PDF is attached (the [[notice:...]] line in the description). Choose a new file to replace it, or tick Remove.":"Optional. Upload the official notice PDF (max 15 MB). A download button appears on the job page.";$("pdfRmWrap").classList.toggle("hidden",!has);$("pdfRm").checked=false;}
 CATS.forEach(c=>{const o=el("option","",c);o.value=c;$("fCat").append(o);});
-$("adminOpen").onclick=()=>{if(!editId)$("fOpen").value=day(0);dlg.showModal();};
+async function fillNext(){
+ if(!client||editId)return;
+ const r=await client.from("jobs").select("post_no").not("post_no","is",null).order("post_no",{ascending:false}).limit(1);
+ if(editId)return;
+ $("fNo").value=r.error?"":((r.data&&r.data.length)?r.data[0].post_no+1:1);
+}
+$("adminOpen").onclick=()=>{if(!editId){$("fOpen").value=day(0);if(!$("fNo").value)fillNext();}dlg.showModal();};
 $("dlgClose").onclick=()=>dlg.close();
 function startEdit(d){
  editId=d.id;editImg=d.image_url||null;photo=null;
  $("fTitle").value=d.title||"";$("fOrg").value=d.organisation||"";$("fCat").value=d.category||"Other";
  $("fLoc").value=d.location||"Assam";$("fOpen").value=d.open_date||day(0);$("fDate").value=d.deadline||"";
- $("fUrl").value=d.official_url||"";$("fDesc").value=d.description||"";$("fPub").checked=!!d.published;
+ $("fUrl").value=d.official_url||"";$("fDesc").value=d.description||"";$("fPub").checked=!!d.published;$("fNo").value=d.post_no==null?"":d.post_no;
  $("fPhoto").value="";const pv=$("pv");pv.replaceChildren();
  if(editImg){const i=el("img");i.src=editImg;i.alt="Current photo";pv.append(i);}else pv.textContent="Photo";
  pdfUI(NOTICE.test(d.description||""));
@@ -294,16 +305,27 @@ function startEdit(d){
 function endEdit(){editId=null;editImg=null;$("fPdf").value="";pdfUI(false);$("saveBtn").textContent="Save job";$("cancelEdit").classList.add("hidden");}
 const JOB_TEMPLATE="## Recruitment Overview\n| Recruiting body | Write the department or organisation |\n| Post name | Write the post name |\n| Total vacancies | Write the number |\n| Qualification | Write the qualification |\n| Application mode | Online |\n| Application opens | Write the date |\n| Application deadline | Write the date |\n| Salary | Write the pay |\n\n## Important Dates\n| Event | Date |\n| --- | --- |\n| Notification date | Write the date |\n| Online application starts | Write the date |\n| Last date to apply | **Write the date** |\n| Last date for fee payment | Write the date |\n| Exam date | To be announced |\n\n## Vacancy Details\n| Post name | Category | Vacancies |\n| --- | --- | --- |\n| Write the post name | General | 0 |\n| Write the post name | SC | 0 |\n| Write the post name | ST | 0 |\n| Write the post name | OBC | 0 |\n| **Total** | | **0** |\n\n## Eligibility Criteria\n| Educational qualification | Write the qualification |\n| Age limit | Write the age limit and the date it is counted from |\n| Nationality | Indian citizen |\n| Other conditions | Write any other condition |\n\n## Application Fee\n| Category | Fee |\n| --- | --- |\n| General / OBC | **Write the fee** |\n| SC / ST / Female / ExSM | **Write the fee** |\n\n## Selection Process\n1. Written test\n2. Interview or skill test\n3. Document verification\n4. Medical examination\n\n## How to Apply Online\n1. **Open the official website.** Use the apply link on this page.\n2. **Register.** Use your own mobile number and email.\n3. **Fill the form.** Enter personal, educational and category details.\n4. **Upload documents.** Photo, signature and certificates as asked in the notice.\n5. **Pay the fee and submit.** Save the final confirmation.\n\n## Important Links\n- [Apply online](https://)\n- [Official website](https://)\n\n## Frequently Asked Questions\n### What is the last date to apply?\nThe last date to apply is Write the date.\n### What qualification is required?\nWrite the qualification.\n### What is the selection process?\nWrite the stages of selection.\n### How do I apply?\nApply online through the official website. Follow the steps given above.\n### Where can I read the official notification?\nUse the Download official notification button on this page.";
 $("tplBtn").onclick=()=>{const t=$("fDesc");if(t.value.trim()&&!confirm("Replace the current description with the job template?"))return;t.value=JOB_TEMPLATE;t.focus();t.scrollTop=0;};
-$("cancelBtn").onclick=()=>{$("jobForm").reset();photo=null;$("pv").replaceChildren();$("pv").textContent="Photo";$("fOpen").value=day(0);$("msg").textContent="";endEdit();};
+$("cancelBtn").onclick=()=>{$("jobForm").reset();photo=null;$("pv").replaceChildren();$("pv").textContent="Photo";$("fOpen").value=day(0);$("msg").textContent="";endEdit();fillNext();};
+let mrows=[];
+async function saveOrder(ids){
+ const ch=ids.map((id,i)=>({id,n:i+1})).filter(x=>{const o=mrows.find(r=>r.id===x.id);return !o||o.post_no!==x.n;});
+ if(!ch.length){toast("Already numbered 1, 2, 3…");return;}
+ const rs=await Promise.all(ch.map(x=>client.from("jobs").update({post_no:x.n}).eq("id",x.id).select("id")));
+ const bad=rs.find(r=>r.error||!r.data||!r.data.length);
+ toast(bad?"Could not reorder: "+(bad.error?bad.error.message:"update blocked by Supabase policy"):"Order updated");
+ await load();loadManage();
+}
 async function loadManage(){
  const box=$("mlist");if(!client)return;
- const r=await client.from("jobs").select("id,title,organisation,deadline,published,image_url,description").order("created_at",{ascending:false});
+ const r=await client.from("jobs").select("id,title,organisation,deadline,published,image_url,description,post_no").order("post_no",{ascending:true,nullsFirst:false}).order("created_at",{ascending:false});
  box.replaceChildren();
- if(r.error){box.append(el("p","org","Could not load jobs: "+r.error.message));return;}
+ if(r.error){box.append(el("p","org","Could not load jobs: "+r.error.message+(/post_no/i.test(r.error.message)?" Run supabase/step3_post_no.sql in Supabase first.":"")));return;}
+ mrows=r.data;
  if(!r.data.length)box.append(el("p","org","No jobs yet."));
- r.data.forEach(j=>{
+ else{const rn=el("button","btn small ghost","Renumber 1, 2, 3…");rn.type="button";rn.style.alignSelf="flex-start";rn.onclick=()=>saveOrder(mrows.map(x=>x.id));box.append(rn);}
+ r.data.forEach((j,i)=>{
   const row=el("div","mrow"),s=el("span"),n=left(j.deadline);
-  s.append(el("strong","",j.title),el("small","",(j.organisation||"")+" | "+(n<0?"Closed":"Closes "+short(j.deadline))+(j.published?"":" | Unpublished")));
+  s.append(el("strong","",(j.post_no!=null?"#"+j.post_no+"  ":"")+j.title),el("small","",(j.organisation||"")+" | "+(n<0?"Closed":"Closes "+short(j.deadline))+(j.published?"":" | Unpublished")));
   const b=el("button","btn small del","Delete");b.type="button";
   b.onclick=async()=>{
    if(!confirm("Delete \""+j.title+"\"? This cannot be undone."))return;
@@ -322,7 +344,11 @@ async function loadManage(){
    if(g.error||!g.data){toast("Could not load this job for editing.");return;}
    startEdit(g.data);
   };
-  const acts=el("div");acts.style.cssText="display:flex;gap:8px;flex:none";acts.append(eb,b);
+  const up=el("button","btn small ghost mv","↑");up.type="button";up.setAttribute("aria-label","Move up");up.disabled=i===0;
+  up.onclick=()=>{const ids=mrows.map(x=>x.id);[ids[i-1],ids[i]]=[ids[i],ids[i-1]];saveOrder(ids);};
+  const dn=el("button","btn small ghost mv","↓");dn.type="button";dn.setAttribute("aria-label","Move down");dn.disabled=i===r.data.length-1;
+  dn.onclick=()=>{const ids=mrows.map(x=>x.id);[ids[i],ids[i+1]]=[ids[i+1],ids[i]];saveOrder(ids);};
+  const acts=el("div","mact");acts.append(up,dn,eb,b);
   row.append(s,acts);box.append(row);});
 }
 function showAdmin(u){$("loginPane").classList.toggle("hidden",!!u);$("adminPane").classList.toggle("hidden",!u);if(u)loadManage();if(u)$("who").textContent="Signed in as "+u.email+". Only accounts in admin_users can publish.";}
@@ -348,7 +374,13 @@ $("jobForm").onsubmit=async e=>{
  if(!client){m.textContent="Connect Supabase first.";return;}
  let u;try{u=new URL($("fUrl").value.trim());if(!/^https?:$/.test(u.protocol))throw 0;}catch(x){m.textContent="Enter a valid link that starts with http or https.";return;}
  if($("fDate").value<$("fOpen").value){m.textContent="The deadline must be on or after the open date.";return;}
- const p={title:$("fTitle").value.trim(),organisation:$("fOrg").value.trim(),category:$("fCat").value,location:$("fLoc").value.trim()||"Assam",open_date:$("fOpen").value,deadline:$("fDate").value,official_url:u.href,description:$("fDesc").value.trim(),published:$("fPub").checked};
+ const noRaw=$("fNo").value.trim();let postNo=null;
+ if(noRaw!==""){postNo=parseInt(noRaw,10);if(!(postNo>=1)){m.textContent="Post No. must be 1 or more.";return;}
+  const dq=await client.from("jobs").select("id,title").eq("post_no",postNo);
+  const clash=(dq.data||[]).find(x=>x.id!==editId);
+  if(clash){m.textContent="Post No. "+postNo+" is already used by \""+clash.title+"\". Choose another number, or use the arrows in Manage jobs to reorder.";return;}
+ }
+ const p={post_no:postNo,title:$("fTitle").value.trim(),organisation:$("fOrg").value.trim(),category:$("fCat").value,location:$("fLoc").value.trim()||"Assam",open_date:$("fOpen").value,deadline:$("fDate").value,official_url:u.href,description:$("fDesc").value.trim(),published:$("fPub").checked};
  $("saveBtn").disabled=true;
  try{
   if(photo){
@@ -380,8 +412,8 @@ $("jobForm").onsubmit=async e=>{
   if(wasEdit&&p.image_url&&editImg&&editImg.includes("/job-photos/")){try{await client.storage.from("job-photos").remove([decodeURIComponent(editImg.split("/job-photos/")[1])]);}catch(x){}}
   if(oldPdf&&(newPdf||rmPdf)&&oldPdf.includes("/job-photos/")){try{await client.storage.from("job-photos").remove([storePath(oldPdf)]);}catch(x){}}
   $("jobForm").reset();photo=null;$("pv").replaceChildren();$("pv").textContent="Photo";$("fOpen").value=day(0);
-  endEdit();dlg.close();toast(wasEdit?"Job updated":"Job saved");await load();loadManage();
- }catch(err){m.textContent="Could not save: "+(err.message||"unknown error")+". Did you run supabase/step2_photos_and_open_date.sql?";}
+  endEdit();fillNext();dlg.close();toast(wasEdit?"Job updated":"Job saved");await load();loadManage();
+ }catch(err){m.textContent="Could not save: "+(err.message||"unknown error")+". Did you run supabase/step2_photos_and_open_date.sql and supabase/step3_post_no.sql?";}
  $("saveBtn").disabled=false;
 };
 load();
