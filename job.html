@@ -112,6 +112,32 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:
 .login{padding:20px;display:flex;flex-direction:column;gap:12px}.who{margin:0;padding:14px 20px 0;color:var(--muted);font-size:.92rem}
 .mrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px dashed var(--line)}.mrow span{min-width:0}.mrow small{display:block;color:var(--muted)}.btn.small{padding:8px 12px;font-size:.85rem}.btn.del{background:transparent;color:var(--red);border:1px solid var(--red)}
 .setup{margin:0 0 18px;padding:12px 14px;border:1px solid var(--gold);border-radius:12px;font-size:.92rem}
+/* rich description */
+.rich{margin-top:calc(var(--u)*1)}
+.rich h2{border-left:4px solid #f1bb69;padding-left:calc(var(--u)*2.6);margin:calc(var(--u)*5) 0 calc(var(--u)*2);font-size:calc(var(--u)*3.8);line-height:1.25}
+.rich h3{font:700 calc(var(--u)*3.2)/1.3 var(--serif);color:var(--cream);margin:calc(var(--u)*3.4) 0 calc(var(--u)*1)}
+.rich p{margin:0 0 calc(var(--u)*2);color:#cfc8ba;font-size:calc(var(--u)*2.75);line-height:1.6}
+.rich p.kv strong{color:var(--cream);font-weight:600}
+.rich ul,.rich ol{margin:0 0 calc(var(--u)*2.4);padding-left:calc(var(--u)*5.4);color:#cfc8ba;font-size:calc(var(--u)*2.75);line-height:1.6}
+.rich li{margin:0 0 calc(var(--u)*1.1)}
+.rich li::marker{color:var(--gold)}
+.rich a{color:var(--gold);text-decoration:underline;text-underline-offset:2px;word-break:break-word}
+.rich strong{color:var(--cream)}
+.tw{overflow-x:auto;margin:0 0 calc(var(--u)*3);border:1.5px solid #35383b;border-radius:calc(var(--u)*1.4)}
+.tw table{border-collapse:collapse;width:100%;font-size:calc(var(--u)*2.4);line-height:1.4}
+.tw th{background:#25221c;color:var(--gold);font-weight:600;text-align:left}
+.tw th,.tw td{padding:calc(var(--u)*1.6) calc(var(--u)*2.2);border-bottom:1px solid #2c2f31;border-right:1px solid #2c2f31;color:#d9d1c2;vertical-align:top}
+.tw tr:last-child td{border-bottom:0}.tw th:last-child,.tw td:last-child{border-right:0}
+.tw td.k{color:var(--cream);font-weight:600;background:#1c1d1c;white-space:nowrap}
+.tw th,.tw td:not(.k){min-width:calc(var(--u)*9)}
+.hint{color:var(--muted);font-size:.78rem;line-height:1.4}
+.cta .btn.ghost{background:transparent;color:var(--cream);border:1px solid #4a4a4d}
+.cta{margin:0 0 calc(var(--u)*1)}
+@media(max-width:700px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.back{font-size:calc(var(--u)*2.6)!important;padding:calc(var(--u)*1.6) calc(var(--u)*3.2)!important;border-radius:calc(var(--u)*1.4)}
+header.bar .btn{font-size:calc(var(--u)*2.6);padding:calc(var(--u)*1.6) calc(var(--u)*3.2);border-radius:calc(var(--u)*1.4)}
+.cta .btn{font-size:calc(var(--u)*2.6)!important;padding:calc(var(--u)*1.9) calc(var(--u)*3.6)!important;border-radius:calc(var(--u)*1.4)}
+.note{font-size:calc(var(--u)*2.4)}
 </style>
 </head>
 <body>
@@ -153,20 +179,60 @@ const sample=[
  {id:"s3",title:"Staff Nurse",organisation:"Example District Hospital",category:"Healthcare",location:"Silchar",open_date:day(4),deadline:day(30),official_url:"https://assam.gov.in",description:"Ward duty across rotating shifts. GNM or B.Sc. Nursing with state registration."}
 ];
 const app=$("app");
+
+function link(p,label,url){const a=el("a","",label);a.href=url;a.target="_blank";a.rel="noopener noreferrer nofollow";p.append(a);}
+function inline(p,text){
+ const re=/(\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<]+)/g;let last=0,m;
+ while((m=re.exec(text))){
+  if(m.index>last)p.append(document.createTextNode(text.slice(last,m.index)));
+  let t=m[0];
+  if(t.startsWith("**")){p.append(el("strong","",t.slice(2,-2)));last=m.index+t.length;}
+  else if(t.startsWith("[")){const k=t.indexOf("](");link(p,t.slice(1,k),t.slice(k+2,-1));last=m.index+t.length;}
+  else{t=t.replace(/[.,;:!?)]+$/,"");link(p,t,t);last=m.index+t.length;re.lastIndex=last;}
+ }
+ if(last<text.length)p.append(document.createTextNode(text.slice(last)));
+}
+const SEP=/^\|?[\s:|-]+\|?$/;
+function table(rows){
+ const cells=r=>r.replace(/^\|/,"").replace(/\|$/,"").split("|").map(s=>s.trim());
+ const head=rows.length>1&&SEP.test(rows[1]);
+ const data=rows.filter(r=>!SEP.test(r)).map(cells);
+ const w=el("div","tw"),t=el("table");
+ data.forEach((r,ri)=>{const tr=el("tr");r.forEach((c,ci)=>{const d=el(head&&ri===0?"th":"td",!head&&ci===0&&r.length===2?"k":"");inline(d,c);tr.append(d);});t.append(tr);});
+ w.append(t);return w;
+}
+function rich(src){
+ const box=el("div","rich"),L=(src||"").replace(/\r/g,"").split("\n");let i=0,para=[];
+ const flush=()=>{if(para.length){const p=el("p");inline(p,para.join(" "));box.append(p);para=[];}};
+ const UL=/^[-*\u2022]\s+/,OL=/^\d+[.)]\s+/;
+ while(i<L.length){
+  const ln=L[i].trim();let m;
+  if(!ln){flush();i++;continue;}
+  if((m=ln.match(/^(#{1,3})\s+(.*)$/))){flush();box.append(el(m[1].length<3?"h2":"h3","",m[2]));i++;continue;}
+  if(ln.startsWith("|")){flush();const rows=[];while(i<L.length&&L[i].trim().startsWith("|")){rows.push(L[i].trim());i++;}box.append(table(rows));continue;}
+  if(UL.test(ln)||OL.test(ln)){flush();const ord=OL.test(ln),R=ord?OL:UL,list=el(ord?"ol":"ul");
+   while(i<L.length&&R.test(L[i].trim())){const li=el("li");inline(li,L[i].trim().replace(R,""));list.append(li);i++;}box.append(list);continue;}
+  if((m=ln.match(/^([A-Za-z][^:|]{1,38}):\s+(.+)$/))&&!/^https?$/i.test(m[1])){flush();const p=el("p","kv");p.append(el("strong","",m[1]+": "));inline(p,m[2]);box.append(p);i++;continue;}
+  para.push(ln);i++;
+ }
+ flush();return box;
+}
 function fail(t){app.replaceChildren();app.append(el("div","note",t));const b=el("a","btn","Back to all jobs");b.href="index.html";b.style.marginTop="16px";app.append(b);}
 function show(j){
  document.title=j.title+" | Assam Job Hub";app.replaceChildren();
  const back=el("a","btn ghost back","Back to all jobs");back.href="index.html";
  const h=el("div","dhead"),w=el("div");w.append(el("h1","",j.title),el("div","org",j.organisation||"Organisation not listed"));h.append(avatar(j,1),w);
  const n=left(j.deadline),gr=el("div","grid");
- [["Organisation",j.organisation||"Not listed"],["Category",j.category||"Other"],["Location",j.location||"Assam"],
+ [["Category",j.category||"Other"],["Location",j.location||"Assam"],
   ["Applications open",fmt(j.open_date)+(openIn(j)>0?" (opens in "+plural(openIn(j))+")":"")],
   ["Application deadline",fmt(j.deadline)+" ("+leftText(n).toLowerCase()+")"]].forEach(r=>{const d=el("div");d.append(el("small","",r[0]),el("strong","",r[1]));gr.append(d);});
  const ap=el("a","btn",openIn(j)>0?"Read the official notice":"Open official notice and apply");ap.href=j.official_url;ap.target="_blank";ap.rel="noopener noreferrer";
  if(n<0){ap.textContent="This job has closed";ap.removeAttribute("href");ap.style.opacity=".6";ap.style.pointerEvents="none";}
  const cta=el("div","cta");cta.append(ap);
- app.append(back,h,gr,el("h2","","About this job"),el("p","desc",j.description||"No further details were provided. Check the official notice."),cta,
-  el("p","note","Check the eligibility and closing date on the official notice before you apply."));
+ const sh=el("a","btn ghost","Share on WhatsApp");sh.href="https://wa.me/?text="+encodeURIComponent(j.title+" - "+location.href);sh.target="_blank";sh.rel="noopener noreferrer";cta.append(sh);
+ const body=j.description&&j.description.trim()?rich(j.description):el("p","note","No further details were provided. Check the official notice.");
+ const cta2=cta.cloneNode(true);cta2.style.marginTop="18px";
+ app.append(back,h,gr,cta,body,cta2,el("p","note","Check the eligibility and closing date on the official notice before you apply."));
 }
 async function load(){
  const id=new URLSearchParams(location.search).get("id");
