@@ -171,6 +171,7 @@ header.bar .btn{font-size:calc(var(--u)*2.6);padding:calc(var(--u)*1.6) calc(var
       <div class="f full check"><input id="fPub" type="checkbox" checked><label for="fPub">Publish immediately</label></div>
       <p class="msg" id="msg" role="status"></p>
       <div class="f full"><button class="btn" type="submit" id="saveBtn">Save job</button></div>
+      <div class="f full hidden" id="cancelEdit"><button class="btn ghost" type="button" id="cancelBtn">Cancel edit</button></div>
       <div class="f full"><button class="btn ghost" type="button" id="logoutBtn">Sign out</button></div>
     </form>
     <div class="login"><h2 style="margin:0">Manage jobs</h2><div id="mlist"></div></div>
@@ -270,10 +271,23 @@ async function load(){
  }catch(e){jobs=sample;list("Database needs attention: "+(e.message||"could not load jobs")+". Sample listings are shown. Check README.md.");}
 }
 /* admin */
-const dlg=$("dlg");let photo=null;
+const dlg=$("dlg");let photo=null;let editId=null,editImg=null;
 CATS.forEach(c=>{const o=el("option","",c);o.value=c;$("fCat").append(o);});
-$("adminOpen").onclick=()=>{$("fOpen").value=day(0);dlg.showModal();};
+$("adminOpen").onclick=()=>{if(!editId)$("fOpen").value=day(0);dlg.showModal();};
 $("dlgClose").onclick=()=>dlg.close();
+function startEdit(d){
+ editId=d.id;editImg=d.image_url||null;photo=null;
+ $("fTitle").value=d.title||"";$("fOrg").value=d.organisation||"";$("fCat").value=d.category||"Other";
+ $("fLoc").value=d.location||"Assam";$("fOpen").value=d.open_date||day(0);$("fDate").value=d.deadline||"";
+ $("fUrl").value=d.official_url||"";$("fDesc").value=d.description||"";$("fPub").checked=!!d.published;
+ $("fPhoto").value="";const pv=$("pv");pv.replaceChildren();
+ if(editImg){const i=el("img");i.src=editImg;i.alt="Current photo";pv.append(i);}else pv.textContent="Photo";
+ $("saveBtn").textContent="Update job";$("cancelEdit").classList.remove("hidden");
+ $("msg").textContent="Editing: "+(d.title||"");
+ $("jobForm").scrollIntoView({block:"start"});$("fTitle").focus();
+}
+function endEdit(){editId=null;editImg=null;$("saveBtn").textContent="Save job";$("cancelEdit").classList.add("hidden");}
+$("cancelBtn").onclick=()=>{$("jobForm").reset();photo=null;$("pv").replaceChildren();$("pv").textContent="Photo";$("fOpen").value=day(0);$("msg").textContent="";endEdit();};
 async function loadManage(){
  const box=$("mlist");if(!client)return;
  const r=await client.from("jobs").select("id,title,organisation,deadline,published,image_url").order("created_at",{ascending:false});
@@ -292,7 +306,16 @@ async function loadManage(){
    if(j.image_url&&j.image_url.includes("/job-photos/")){try{await client.storage.from("job-photos").remove([decodeURIComponent(j.image_url.split("/job-photos/")[1])]);}catch(x){}}
    toast("Job deleted");await load();loadManage();
   };
-  row.append(s,b);box.append(row);});
+  const eb=el("button","btn small ghost","Edit");eb.type="button";
+  eb.onclick=async()=>{
+   eb.disabled=true;
+   const g=await client.from("jobs").select("*").eq("id",j.id).maybeSingle();
+   eb.disabled=false;
+   if(g.error||!g.data){toast("Could not load this job for editing.");return;}
+   startEdit(g.data);
+  };
+  const acts=el("div");acts.style.cssText="display:flex;gap:8px;flex:none";acts.append(eb,b);
+  row.append(s,acts);box.append(row);});
 }
 function showAdmin(u){$("loginPane").classList.toggle("hidden",!!u);$("adminPane").classList.toggle("hidden",!u);if(u)loadManage();if(u)$("who").textContent="Signed in as "+u.email+". Only accounts in admin_users can publish.";}
 if(client){client.auth.getSession().then(r=>showAdmin(r.data.session&&r.data.session.user));client.auth.onAuthStateChange((_e,s)=>showAdmin(s&&s.user));}
@@ -328,10 +351,15 @@ $("jobForm").onsubmit=async e=>{
    if(up.error)throw up.error;
    p.image_url=client.storage.from("job-photos").getPublicUrl(path).data.publicUrl;
   }
-  const r=await client.from("jobs").insert(p);
+  const wasEdit=!!editId;let r;
+  if(wasEdit){
+   r=await client.from("jobs").update(p).eq("id",editId).select("id");
+   if(!r.error&&(!r.data||!r.data.length))throw new Error("The update was blocked. Add an UPDATE policy for admins on the jobs table in Supabase");
+  }else r=await client.from("jobs").insert(p);
   if(r.error)throw r.error;
+  if(wasEdit&&p.image_url&&editImg&&editImg.includes("/job-photos/")){try{await client.storage.from("job-photos").remove([decodeURIComponent(editImg.split("/job-photos/")[1])]);}catch(x){}}
   $("jobForm").reset();photo=null;$("pv").replaceChildren();$("pv").textContent="Photo";$("fOpen").value=day(0);
-  dlg.close();toast("Job saved");await load();loadManage();
+  endEdit();dlg.close();toast(wasEdit?"Job updated":"Job saved");await load();loadManage();
  }catch(err){m.textContent="Could not save: "+(err.message||"unknown error")+". Did you run supabase/step2_photos_and_open_date.sql?";}
  $("saveBtn").disabled=false;
 };
